@@ -61,7 +61,7 @@ def collect():
                 continue
             path = urlparse(href).path
             # Release URLs commonly contain YYYYMMDD as a path segment.
-            m = re.search(r"/press/(20\\d{2})/\\d{2}/(20\\d{6})[^/]*/[^/]+\\.html$", path)
+m = re.search(r"/press/(20\d{2})/\d{2}/(20\d{6})[^/]*/[^/]+\.html$", path)
             if m and len(title) >= 8:
                 day = m.group(2)
                 try:
