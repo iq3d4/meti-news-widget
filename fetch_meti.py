@@ -86,7 +86,7 @@ def collect():
 
 def html(items):
     updated = datetime.now(JST).strftime("%Y/%m/%d %H:%M JST")
-    rows = "\\n".join(
+    rows = "\n".join(
         '<a class="entry" href="{url}" target="_blank" rel="noopener noreferrer">'
         '<time>{date}</time><span>{title}</span><b>↗</b></a>'.format(
             url=escape(item["url"], quote=True),
