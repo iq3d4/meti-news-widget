@@ -53,6 +53,8 @@ def collect():
         try:
             links = get_links(page)
             print("Fetched:", page, "links:", len(links))
+            for href, title in links[:40]:
+                print("LINK:", href, "|", title[:80])
         except Exception as exc:
             print("Unable to fetch", page, str(exc))
             continue
