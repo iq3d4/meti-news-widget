@@ -4,7 +4,9 @@ name: Refresh METI news
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 */3 * * *'
+    # UTC schedules corresponding to Mon-Fri 00:17-21:17 in Japan.
+    - cron: '17 0,3,6,9,12 * * 1-5'
+    - cron: '17 15,18,21 * * 0-4'
   push:
     branches: [main]
 
@@ -18,7 +20,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  business-day:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      run: ${{ steps.calendar.outputs.run }}
+    steps:
+      - name: Check Japanese business day
+        id: calendar
+        shell: python
+        run: |
+          import csv
+          import io
+          import os
+          import time
+          from datetime import datetime
+          from urllib.request import urlopen
+          from zoneinfo import ZoneInfo
+
+          today = datetime.now(ZoneInfo("Asia/Tokyo")).date()
+          allowed = False
+          reason = "Weekend in Japan"
+          if today.weekday() < 5:
+              url = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"
+              for attempt in range(3):
+                  try:
+                      with urlopen(url, timeout=20) as response:
+                          rows = csv.reader(io.StringIO(response.read().decode("cp932")))
+                          next(rows)
+                          holidays = {
+                              datetime.strptime(row[0], "%Y/%m/%d").date()
+                              for row in rows if row and row[0].strip()
+                          }
+                      if not any(day.year == today.year for day in holidays):
+                          raise ValueError("Holiday data does not cover the current year")
+                      allowed = today not in holidays
+                      reason = "Japanese business day" if allowed else "Japanese public holiday"
+                      break
+                  except Exception as exc:
+                      if attempt < 2:
+                          time.sleep(5)
+                      else:
+                          reason = "Holiday calendar unavailable; skipping publication"
+                          print(f"::warning::{reason}: {exc}")
+          print(f"{today}: {reason}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"run={str(allowed).lower()}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(f"{today} (Asia/Tokyo): {reason}\n")
+
   publish:
+    needs: business-day
+    if: needs.business-day.outputs.run == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
