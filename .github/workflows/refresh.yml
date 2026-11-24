@@ -11,6 +11,7 @@ on:
     branches: [main]
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -81,9 +82,59 @@ jobs:
       - name: Fetch METI releases and generate website
         run: python3 fetch_meti.py
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - id: pages-artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: site
+      - name: Wait for Pages artifact availability
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_ARTIFACT_ID: ${{ steps.pages-artifact.outputs.artifact_id }}
+        shell: python
+        run: |
+          import json
+          import os
+          import time
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
+
+          artifact_id = int(os.environ["EXPECTED_ARTIFACT_ID"])
+          url = (
+              f'{os.environ["GITHUB_API_URL"]}/repos/{os.environ["GITHUB_REPOSITORY"]}'
+              f'/actions/runs/{os.environ["GITHUB_RUN_ID"]}/artifacts?name=github-pages&per_page=100'
+          )
+          request = Request(url, headers={
+              "Authorization": f'Bearer {os.environ["GH_TOKEN"]}',
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          })
+          for attempt in range(1, 7):
+              try:
+                  with urlopen(request, timeout=10) as response:
+                      artifacts = json.load(response)["artifacts"]
+                  ready = any(
+                      item["id"] == artifact_id
+                      and item["name"] == "github-pages"
+                      and not item.get("expired", False)
+                      and item.get("size_in_bytes", 0) > 0
+                      for item in artifacts
+                  )
+                  if ready:
+                      # deploy-pages uses a different artifact service; allow propagation.
+                      print(f"Artifact {artifact_id} is visible; allowing 10 seconds to settle.")
+                      time.sleep(10)
+                      break
+                  print(f"Artifact {artifact_id} not visible yet (attempt {attempt}/6).")
+              except HTTPError as exc:
+                  if exc.code not in (429, 500, 502, 503, 504):
+                      raise
+                  print(f"Temporary API error HTTP {exc.code} (attempt {attempt}/6).")
+              except (URLError, TimeoutError):
+                  print(f"Temporary network error (attempt {attempt}/6).")
+              if attempt == 6:
+                  raise RuntimeError(f"Artifact {artifact_id} unavailable after 6 checks")
+              time.sleep(10)
       - id: deployment
         uses: actions/deploy-pages@v4
 
